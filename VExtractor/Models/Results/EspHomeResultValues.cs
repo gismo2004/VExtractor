@@ -29,12 +29,17 @@ public class BasicProperties
     [YamlMember(Alias = "address", Order = int.MinValue + 3)] public string Address { get; set; }
     [YamlMember(Alias = "update_interval", Order = int.MinValue+4)] public string? UpdateInterval { get; set; }
 
-    public string GetDivRatioString(string? input)
+    public string? GetDivRatioString(string? input)
     {
+        if (input == null) return null;
+
         if (input.StartsWith("Div"))
             return input.Replace("Div", "");
 
-        return "0";
+        if (input.ToLower().Equals("sec2hour"))
+            return "3600";
+
+        return null;
     }
 }
 
@@ -60,7 +65,7 @@ public class OptoTextSensor : BasicProperties
 
         if (resVal.EnumValues.Count > 0)
         {
-            Filters = new TextSensorFilters()
+            Filters = new TextSensorFilters
             {
                 Map = resVal.EnumValues.Select(pair => $"{pair.Key} -> {pair.Value}").ToArray()
             };
@@ -90,7 +95,7 @@ public class OptoSensor : BasicProperties
 {
     public OptoSensor(ResultValues resVal) : base(resVal)
     {
-        DivRatio = GetDivRatioString(resVal.Conversion);
+        DivRatio = GetDivRatioString(resVal.Conversion); ;
         Bytes = resVal.ByteLength;
 
         if (!string.IsNullOrWhiteSpace(resVal.Unit))
@@ -98,7 +103,6 @@ public class OptoSensor : BasicProperties
 
         if ((bool)resVal.Unit?.Equals("°C"))
         {
-
             DeviceClass = "temperature";
             Icon = "mdi:thermometer-water";
         }

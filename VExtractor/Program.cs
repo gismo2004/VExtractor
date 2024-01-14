@@ -8,7 +8,7 @@ using YamlDotNet.Serialization;
 
 var identifier = "2048";
 var serializedIdentifier = DataHelper.Serialize(identifier);
-var culture = "en";
+var culture = "de";
 
 using var vDb = new VDataBase();
 
@@ -176,7 +176,7 @@ foreach (var resVal in resultList)
     }
 }
 
-var optoExport = new OptoLinkExport()
+var optoExport = new OptoLinkExport
 {
     BinarySensor = binSensors,
     Switch = switches,
@@ -184,7 +184,7 @@ var optoExport = new OptoLinkExport()
     Select = selects,
     Sensor = sensors,
     Number = numbers,
-    Optolink = new Optolink()
+    Optolink = new Optolink
     {
         DeviceInfo = foundDataPoint.Description
     }
