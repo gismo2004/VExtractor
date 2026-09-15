@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Data;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization.Formatters.Binary;
@@ -14,37 +14,88 @@ public class DataHelper
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return string.Empty;
 
+        // Locates a local service-tool installation so the parameter database can be read
+        // in place. Windows only; every other platform falls back to VExtractor/database/.
         var registryPath = @"SOFTWARE\Avantgarde\Setup\Viessmann Vitosoft 300 SID1";
         using var registryKey = Registry.LocalMachine.OpenSubKey(registryPath);
 
         return registryKey?.GetValue("InstallDir")?.ToString() ?? string.Empty;
     }
 
-    public static string GetResultDataPath()
+    public static string GetConnectionString()
     {
-        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data");
+        var envConn = Environment.GetEnvironmentVariable("VEXTRACTOR_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(envConn))
+            return envConn;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            try
+            {
+                var dbPath = GetDatabaseFilePath();
+                return $"Data Source=(LocalDB)\\MSSQLLocalDB;AttachDbFilename={dbPath};Integrated Security=True;Connect Timeout=30;Encrypt=True";
+            }
+            catch
+            {
+                // Fall back to standard connection string
+            }
+        }
+
+        // Local extraction container only -- never a shared or production server. Override with
+        // VEXTRACTOR_CONNSTR (or VEXTRACTOR_SA_PASSWORD) rather than editing this default.
+        var fromEnv = Environment.GetEnvironmentVariable("VEXTRACTOR_CONNSTR");
+        if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv;
+
+        var password = Environment.GetEnvironmentVariable("VEXTRACTOR_SA_PASSWORD") ?? "VExtractor@2026!";
+        return $"Server=localhost,1433;Database=ecnViessmann;User Id=sa;Password={password};TrustServerCertificate=True;";
     }
+
+    public static string GetResultDataPath() => Path.Combine(Directory.GetCurrentDirectory(), "Data");
 
     public static string GetDatabaseFilePath()
     {
-        //first priority is Data Folder
-        if (File.Exists(Path.Combine(GetResultDataPath(), VdbName)))
-            return Path.Combine(GetResultDataPath(), VdbName);
+        var candidates = new[]
+        {
+            Path.Combine(GetResultDataPath(), VdbName),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "database", VdbName),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, VdbName),
+            Path.Combine(Directory.GetCurrentDirectory(), "database", VdbName),
+            Path.Combine(Directory.GetCurrentDirectory(), "work", "database", VdbName),
+            Path.Combine(Directory.GetCurrentDirectory(), "..", "work", "database", VdbName),
+            Path.Combine(Directory.GetCurrentDirectory(), VdbName),
+            Path.Combine(GetVInstallDir(), "ServiceTool\\Database", VdbName)
+        };
 
-        if (File.Exists(Path.Combine(GetVInstallDir(), "ServiceTool\\Database", VdbName)))
-            return Path.Combine(GetVInstallDir(), "ServiceTool\\Database", VdbName);
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+                return Path.GetFullPath(candidate);
+        }
 
         throw new Exception($"Can't find {VdbName}");
     }
 
     public static string GetTranslationFilePath(string fileName)
     {
-        //first priority is Data Folder
-        if (File.Exists(Path.Combine(GetResultDataPath(), fileName)))
-            return Path.Combine(GetResultDataPath(), fileName);
+        var sourceDir = Environment.GetEnvironmentVariable("VEXTRACTOR_SOURCE_DIR");
+        var candidates = new[]
+        {
+            Path.Combine(string.IsNullOrWhiteSpace(sourceDir) ? GetResultDataPath() : sourceDir, fileName),
+            Path.Combine(GetResultDataPath(), fileName),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "database", fileName),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), "work", "database", fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), "..", "work", "database", fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), "database", fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), fileName),
+            Path.Combine(GetVInstallDir(), "ServiceTool\\Web\\XmlDocuments", fileName)
+        };
 
-        if (File.Exists(Path.Combine(GetVInstallDir(), "ServiceTool\\Web\\XmlDocuments", fileName)))
-            return Path.Combine(GetVInstallDir(), "ServiceTool\\Web\\XmlDocuments", fileName);
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+                return Path.GetFullPath(candidate);
+        }
 
         throw new Exception($"Can't find {fileName}");
     }

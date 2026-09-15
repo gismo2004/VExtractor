@@ -38,6 +38,13 @@ public class AdditionalData
 
     public string BlockFactor { get; set; }
 
+    // Extension "MappingType" on ecnEventType (label viessmann.CircuitTimes.TableExtensions
+    // .MappingField, hence the property name). Classifies the block datapoints whose bytes
+    // are not a value but a structure: 1/9 phase schedule (start/end pairs), 2 quarter-hour
+    // level bitmap, 5..8/10 phase schedule with a level byte (HK, WW, ZP, buffer, ventilation),
+    // 3/4 error history. 0 means none.
+    public string MappingField { get; set; }
+
     public string FunctionValue { get; set; }
 
     public string RPCHandler { get; set; }

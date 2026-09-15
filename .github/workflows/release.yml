@@ -1,0 +1,77 @@
+# Publish the compiler for each platform when a version tag is pushed.
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Each archive holds our executable, the launcher for the platform, and 7-Zip's console program
+# with its licence, so that nothing but the .NET 8 runtime is needed on the machine it runs on.
+# 7-Zip is fetched from its own GitHub release at build time, pinned by version and checksum,
+# and redistributed under its LGPL licence; nothing is downloaded when the tool runs. No catalog
+# and no vendor data is produced or published here: the workflow compiles this repository's own
+# source and nothing else.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runtime: [win-x64, linux-x64, linux-arm64, osx-arm64, osx-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y -qq dos2unix 7zip
+      - name: Fetch 7-Zip
+        # 7-Zip 26.03 (2026-09-03), from https://github.com/ip7z/7zip/releases. The checksums
+        # pin exactly these files; a changed file fails the build rather than shipping.
+        run: |
+          case "${{ matrix.runtime }}" in
+            win-x64)     pkg=7z2603-extra.7z;          sum=191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f ;;
+            linux-x64)   pkg=7z2603-linux-x64.tar.xz;  sum=dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695 ;;
+            linux-arm64) pkg=7z2603-linux-arm64.tar.xz; sum=2389ba20e4d8295e8709c20b6263b69bd1ec4972fe38a04ad7a1badbf595b996 ;;
+            osx-*)       pkg=7z2603-mac.tar.xz;        sum=5ca87677072c59f5602e5c49baa27d4694bacd2259b4e507f0094249d4281480 ;;
+          esac
+          curl -sSL -o "$pkg" "https://github.com/ip7z/7zip/releases/download/26.03/$pkg"
+          echo "$sum  $pkg" | sha256sum -c -
+          mkdir -p sevenzip
+          case "$pkg" in
+            *.7z)     7zz e -y -osevenzip "$pkg" x64/7za.exe License.txt ;;
+            *.tar.xz) tar -xJf "$pkg" -C sevenzip 7zz License.txt ;;
+          esac
+          mv sevenzip/License.txt sevenzip/7-Zip-License.txt
+          ls -la sevenzip
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Publish
+        run: |
+          dotnet publish VExtractor/VExtractor.csproj -c Release --nologo \
+            -r ${{ matrix.runtime }} --self-contained false \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none \
+            -o out/${{ matrix.runtime }}
+      - name: Archive
+        # The executable, the launcher for the platform (VExtractor.bat to double-click on
+        # Windows, vextractor.sh elsewhere), 7-Zip's console program and its licence.
+        run: |
+          cd out/${{ matrix.runtime }}
+          cp ../../sevenzip/7-Zip-License.txt .
+          case "${{ matrix.runtime }}" in
+            win-*) cp ../../VExtractor.bat ../../sevenzip/7za.exe . && unix2dos -q VExtractor.bat
+                   zip -q ../VExtractor-${{ github.ref_name }}-${{ matrix.runtime }}.zip \
+                       VExtractor.exe VExtractor.bat 7za.exe 7-Zip-License.txt ;;
+            *)     cp ../../vextractor.sh ../../sevenzip/7zz . && chmod +x vextractor.sh VExtractor 7zz
+                   tar -czf ../VExtractor-${{ github.ref_name }}-${{ matrix.runtime }}.tar.gz \
+                       VExtractor vextractor.sh 7zz 7-Zip-License.txt ;;
+          esac
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 \
+            || gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
+          gh release upload "${{ github.ref_name }}" out/VExtractor-${{ github.ref_name }}-${{ matrix.runtime }}.* --clobber

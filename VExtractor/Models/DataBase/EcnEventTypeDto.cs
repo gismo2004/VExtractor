@@ -2,9 +2,9 @@
 
 public class EcnEventTypeDto
 {
-    public EcnEventType EventType { get; set; }
+    public required EcnEventType EventType { get; set; }
 
     public List<EcnTableExtensionValue>? ExtensionValues { get; set; }
 
-    public List<EcnEventValueType?> EventValuesTypes { get; set; }
+    public List<EcnEventValueType> EventValuesTypes { get; set; } = new();
 }

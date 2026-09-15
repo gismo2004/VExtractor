@@ -396,3 +396,31 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# ---------------------------------------------------------------------------
+
+# Build output
+publish/
+bin/
+obj/
+Data/
+*.xlsx
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-tools/
+
+# Temporary playground: local experiments, scratch data, nothing shippable.
+work/
+
+# The controller catalog is built locally by each user and never committed, in any form or
+# under any name. build/ holds everything this tool produces.
+build/
+*.db
+*.db-shm
+*.db-wal
+*.db.xz
+
+core.*
