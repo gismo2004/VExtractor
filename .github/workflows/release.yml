@@ -24,11 +24,13 @@ jobs:
       matrix:
         runtime: [win-x64, linux-x64, linux-arm64, osx-arm64, osx-x64]
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get install -y -qq dos2unix 7zip
+      - uses: actions/checkout@v7
+      - run: sudo apt-get install -y -qq dos2unix 7zip xz-utils zip
       - name: Fetch 7-Zip
         # 7-Zip 26.03 (2026-09-03), from https://github.com/ip7z/7zip/releases. The checksums
-        # pin exactly these files; a changed file fails the build rather than shipping.
+        # pin exactly these files; a changed file fails the build rather than shipping. The
+        # Windows package is itself a .7z, opened with the runner's 7-Zip, which Ubuntu installs
+        # as 7z (7zz is the name only in 7-Zip's own builds).
         run: |
           case "${{ matrix.runtime }}" in
             win-x64)     pkg=7z2603-extra.7z;          sum=191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f ;;
@@ -40,12 +42,12 @@ jobs:
           echo "$sum  $pkg" | sha256sum -c -
           mkdir -p sevenzip
           case "$pkg" in
-            *.7z)     7zz e -y -osevenzip "$pkg" x64/7za.exe License.txt ;;
+            *.7z)     7z e -y -osevenzip "$pkg" x64/7za.exe License.txt ;;
             *.tar.xz) tar -xJf "$pkg" -C sevenzip 7zz License.txt ;;
           esac
           mv sevenzip/License.txt sevenzip/7-Zip-License.txt
           ls -la sevenzip
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
       - name: Publish
