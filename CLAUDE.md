@@ -44,8 +44,16 @@ archive also carries 7-Zip's console program (`7za.exe` on Windows, `7zz` elsewh
 LGPL licence: the workflow fetches a pinned 7-Zip release by checksum at build time and puts the
 binary beside ours, unchanged. Nothing is downloaded when the tool runs. `InstallerReader` looks
 for 7-Zip beside the executable first, then on the PATH, and stops with an explanation when there
-is none. No container anywhere in a user's path; Docker appears only in `build.sh`, as a
-stand-in for a missing SDK on a developer's machine.
+is none.
+
+The same tag publishes `ghcr.io/gismo2004/vextractor` (amd64 and arm64) from the `Dockerfile`:
+the .NET runtime image, Debian's `7zip` package (which provides `7zz`), and the program
+published as a plain directory rather than the single file the archives use, because that file
+unpacks itself into a home directory a container user does not have. `VEXTRACTOR_HOME=/data`
+makes the guided run treat the mounted folder as home (it otherwise prefers "beside the
+program", which in the image is `/app`), and `VEXTRACTOR_LAUNCHER=1` skips the closing pause.
+Tested end to end on 2026-09-17: the container built the same 1,308-datapoint WO1A catalog as the
+native run. `build.sh` still uses the SDK container only as a stand-in for a missing SDK.
 
 `work/docs/` holds the working notes: `DATABASE.md` on the source data, `DESIGN.md` on decisions
 already made, `STATUS.md` as the running log. They are the record of what was measured and what

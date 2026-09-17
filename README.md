@@ -112,6 +112,24 @@ something like `catalog-2048.db`.
 
 ---
 
+## Docker
+
+If you have Docker, nothing needs installing at all. In the folder that holds
+`Vitosoft300SID1_Setup.exe`:
+
+```bash
+docker run --rm -it -v "$PWD:/data" ghcr.io/gismo2004/vextractor
+```
+
+The image carries VExtractor, the .NET runtime and 7-Zip, nothing else; your folder is mounted
+as `/data`, the installer is read from there and the catalog written there. It is the same
+guided run as above, with the same two questions, for `amd64` and `arm64` (Raspberry Pi,
+Apple silicon). On Linux add `--user "$(id -u):$(id -g)"` before `-v` so that the files it
+writes belong to you rather than to root; Docker Desktop on Windows and macOS does that by
+itself. Each release publishes an image with the release's tag, and `latest` is the newest.
+
+---
+
 ## The two questions
 
 ### Languages
@@ -210,10 +228,11 @@ window open until you press a key, so the message stays on screen.
 
 ## Scripting and building from source
 
-`VExtractor help` shows the command-line form, for running it without questions. To build the
-executable yourself from a checkout, run `./build.sh linux-x64` (or `win-x64`, `linux-arm64`,
-`osx-arm64`); it uses the .NET 8 SDK, or Docker if the SDK is not installed, and puts the result
-in `build/bin/`.
+`VExtractor help` shows the command-line form, for running it without questions; the container
+takes the same arguments after the image name. To build the executable yourself from a
+checkout, run `./build.sh linux-x64` (or `win-x64`, `linux-arm64`, `osx-arm64`); it uses the
+.NET 8 SDK, or Docker if the SDK is not installed, and puts the result in `build/bin/`. The
+image is built from the `Dockerfile` with `docker build -t vextractor .`.
 
 ## How this was written
 

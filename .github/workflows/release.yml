@@ -5,9 +5,10 @@
 # Each archive holds our executable, the launcher for the platform, and 7-Zip's console program
 # with its licence, so that nothing but the .NET 8 runtime is needed on the machine it runs on.
 # 7-Zip is fetched from its own GitHub release at build time, pinned by version and checksum,
-# and redistributed under its LGPL licence; nothing is downloaded when the tool runs. No catalog
-# and no vendor data is produced or published here: the workflow compiles this repository's own
-# source and nothing else.
+# and redistributed under its LGPL licence; nothing is downloaded when the tool runs. The same
+# tag also publishes a container image, ghcr.io/gismo2004/vextractor, for running the guided
+# build without installing anything. No catalog and no vendor data is produced or published
+# here: the workflow compiles this repository's own source and nothing else.
 name: release
 
 on:
@@ -16,6 +17,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -88,3 +90,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.ref_name }}" out/VExtractor-${{ github.ref_name }}-${{ matrix.runtime }}.* --clobber
+
+  image:
+    # The guided run as a container, see the Dockerfile. Built for amd64 and arm64 from the
+    # same tag, so an image always matches a release; the tag and "latest" both point at it.
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/vextractor:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/vextractor:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=Builds the controller catalog for the OptoV Home Assistant integration
+            org.opencontainers.image.licenses=MIT

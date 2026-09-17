@@ -367,9 +367,16 @@ public static class Guided
 
     // ------------------------------------------------------------------ console
 
-    /// <summary>Beside the program when that can be written to, otherwise the current directory.</summary>
+    /// <summary>
+    /// Beside the program when that can be written to, otherwise the current directory. Or
+    /// wherever VEXTRACTOR_HOME points: in the container the program sits in its own image
+    /// and the user's folder is mounted elsewhere, so "beside the program" is the wrong place.
+    /// </summary>
     private static string WritableHome()
     {
+        var forced = Environment.GetEnvironmentVariable("VEXTRACTOR_HOME");
+        if (!string.IsNullOrWhiteSpace(forced) && Directory.Exists(forced))
+            return Path.GetFullPath(forced);
         var beside = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         try
         {
