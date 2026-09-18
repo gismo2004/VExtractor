@@ -96,14 +96,16 @@ personal paths anywhere outside `work/`.
 
 `SqliteExporter.CatalogSchemaVersion` is written into the catalog's `catalog_meta` table, and the
 integration carries the number it needs in `catalog_db.CATALOG_SCHEMA_VERSION`. The two are
-checked against each other whenever a catalog is uploaded and whenever a config entry starts, in
-both directions, so a mismatch names the side that is behind instead of failing deep inside a
-query.
+checked against each other whenever a catalog is uploaded and whenever a config entry starts. A
+catalog newer than the integration is refused with a message to update the integration. The
+integration also carries a minimum it still reads (`CATALOG_SCHEMA_MIN`): a catalog between the
+minimum and the current number runs, minus whatever the catalog gained since, and raises a repair
+saying a rebuild is due; one below the minimum fails setup.
 
-Raise both together, in the same change, whenever an older catalog would be wrong or unreadable
-under the newer integration: a table or column the reader now needs, a changed meaning for an
-existing one, a different key format. Adding something the reader does not require yet needs no
-bump.
+Raise this number together with the integration's, in the same change, whenever the catalog
+gains something the integration reads, so that older catalogs are reported as behind. The
+integration's minimum moves only when an older catalog would be wrong or unreadable: a table or
+column the reader now needs, a changed meaning for an existing one, a different key format.
 
 ## Building
 

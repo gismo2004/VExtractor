@@ -621,8 +621,8 @@ public class SqliteExporter
                 -- Fault codes of the burner automat (Feuerungsautomat), keyed by the automat's
                 -- chip code rather than by device: the boiler reads its automat's code from the
                 -- GFA_Kennung datapoint and looks the texts up under
-                -- viessmann.errorcode.fa.<CHIP>.<CODE>. Only written when an exported device has
-                -- that datapoint; additive, so the schema version stays.
+                -- viessmann.errorcode.fa.<CHIP>.<CODE>. Only filled when an exported device has
+                -- that datapoint; the table itself is always there (structure version 2).
                 CREATE TABLE fa_error_codes (
                     chip TEXT NOT NULL,
                     code TEXT NOT NULL,
@@ -1365,13 +1365,15 @@ public class SqliteExporter
     /// this number against the one it needs and says which side is behind, instead of failing
     /// somewhere deep in a query on a column that is not there.
     ///
-    /// Bump it whenever a change would make an older catalog wrong or unreadable: a table or
-    /// column the reader needs, a changed meaning of an existing one, a different key format.
-    /// Adding something the reader does not require yet does not need a bump.
+    /// Bump it whenever the catalog gains something the integration reads, and together with
+    /// the integration's own constant. The integration keeps a separate minimum it still reads:
+    /// a catalog between the two runs and raises a repair saying a rebuild is due, one below
+    /// the minimum fails. So a bump here costs nobody a working installation; it tells them.
     ///
     ///   1  first versioned catalog: level-name key stems on datapoint_defs, catalog_meta
+    ///   2  fa_error_codes, the fault texts of the burner automats
     /// </summary>
-    public const int CatalogSchemaVersion = 1;
+    public const int CatalogSchemaVersion = 2;
 
     /// <summary>
     /// The MappingType values that mark a weekly programme, and the name the source files its
