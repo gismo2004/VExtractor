@@ -52,6 +52,9 @@ published as a plain directory rather than the single file the archives use, bec
 unpacks itself into a home directory a container user does not have. `VEXTRACTOR_HOME=/data`
 makes the guided run treat the mounted folder as home (it otherwise prefers "beside the
 program", which in the image is `/app`), and `VEXTRACTOR_LAUNCHER=1` skips the closing pause.
+`VEXTRACTOR_ID` and `VEXTRACTOR_LANG` answer the two questions so the run needs no terminal
+(added for the container on a user's request, `Guided.ResolveIds`/`ParseLanguages`); the
+interactive path is unchanged and the output is overwritten without asking in that mode.
 Tested end to end on 2026-09-17: the container built the same 1,308-datapoint WO1A catalog as the
 native run. `build.sh` still uses the SDK container only as a stand-in for a missing SDK.
 

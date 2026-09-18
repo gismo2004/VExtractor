@@ -128,6 +128,17 @@ Apple silicon). On Linux add `--user "$(id -u):$(id -g)"` before `-v` so that th
 writes belong to you rather than to root; Docker Desktop on Windows and macOS does that by
 itself. Each release publishes an image with the release's tag, and `latest` is the newest.
 
+To run it without any questions, for example from a script, answer them as environment
+variables: `VEXTRACTOR_ID` is the controller (a system id such as `2048`, several separated by
+commas, `all`, or a name that matches exactly one system id) and `VEXTRACTOR_LANG` the
+languages (default `de,en`). An existing catalog of the same name is overwritten.
+
+```bash
+docker run --rm -e VEXTRACTOR_ID=2048 -e VEXTRACTOR_LANG=de,en -v "$PWD:/data" ghcr.io/gismo2004/vextractor
+```
+
+The same two variables work for the native program as well.
+
 ---
 
 ## The two questions

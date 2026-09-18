@@ -54,6 +54,13 @@ public static class Guided
 
     private static int RunIn(string home)
     {
+        // Set VEXTRACTOR_ID (and optionally VEXTRACTOR_LANG) to skip both questions below --
+        // for a container, or any other rerun where the answers are already known. Anything
+        // else about the run is unchanged, including where sources are found and the result
+        // written; see the README's Docker section.
+        var wantedId = Environment.GetEnvironmentVariable("VEXTRACTOR_ID");
+        var wantedLang = Environment.GetEnvironmentVariable("VEXTRACTOR_LANG");
+
         // ---- 1. Where do the definitions come from? ----
         var source = FindSource(home);
         if (source == null)
@@ -64,7 +71,20 @@ public static class Guided
 
         // ---- 2. Which languages? Needed before unpacking an installer, since the text
         //         files come out of it per language. ----
-        var languages = AskLanguages(source);
+        string[]? languages;
+        if (wantedId == null)
+        {
+            languages = AskLanguages(source);
+        }
+        else
+        {
+            languages = ParseLanguages(wantedLang ?? DefaultLanguages);
+            if (languages == null)
+            {
+                Console.WriteLine($"VEXTRACTOR_LANG must be two-letter codes, comma-separated; got '{wantedLang}'.");
+                return 1;
+            }
+        }
 
         // ---- 3. Make the source usable: unpack, load. ----
         if (!source.Ready(home, languages))
@@ -73,11 +93,13 @@ public static class Guided
         // ---- 4. Which controller? ----
         using var vDb = new VDataBase();
         var controllers = SqliteExporter.Controllers(vDb, languages[0]);
-        var ids = AskController(controllers);
+        var ids = wantedId == null ? AskController(controllers) : ResolveIds(wantedId, controllers);
         if (ids == null) return 1;
 
         // ---- 5. Build. ----
-        var output = AskOutputPath(home, ids);
+        var output = wantedId == null
+            ? AskOutputPath(home, ids)
+            : Path.Combine(home, ids.Count == 1 && ids[0] != "all" ? $"catalog-{ids[0]}.db" : "catalog.db");
         if (output == null) return 1;
         Console.WriteLine();
         SqliteExporter.Export(vDb, output, ids, languages.ToList());
@@ -289,6 +311,15 @@ public static class Guided
         return true;
     }
 
+    /// <summary>Two-letter codes, comma-separated, lower-cased; null when they are not that.</summary>
+    private static string[]? ParseLanguages(string typed)
+    {
+        var chosen = typed
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => l.ToLowerInvariant()).Distinct().ToArray();
+        return chosen.Length > 0 && chosen.All(l => l.Length == 2 && l.All(char.IsLetter)) ? chosen : null;
+    }
+
     private static string[] AskLanguages(Source source)
     {
         var available = source.Languages;
@@ -302,12 +333,49 @@ public static class Guided
         while (true)
         {
             var typed = Ask($"Languages [{DefaultLanguages}]");
-            var chosen = (string.IsNullOrWhiteSpace(typed) ? DefaultLanguages : typed)
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(l => l.ToLowerInvariant()).Distinct().ToArray();
-            if (chosen.All(l => l.Length == 2 && l.All(char.IsLetter))) return chosen;
+            var chosen = ParseLanguages(string.IsNullOrWhiteSpace(typed) ? DefaultLanguages : typed);
+            if (chosen != null) return chosen;
             Console.WriteLine("  two-letter codes, comma-separated, please.");
         }
+    }
+
+    /// <summary>
+    /// VEXTRACTOR_ID as AskController would resolve it, without a loop to fall back on: 'all',
+    /// one system id or several comma-separated, or -- if it names exactly one controller --
+    /// the same search AskController offers when what was typed is not an id.
+    /// </summary>
+    private static List<string>? ResolveIds(string typed, List<SqliteExporter.ControllerInfo> controllers)
+    {
+        typed = typed.Trim();
+        if (typed.Equals("all", StringComparison.OrdinalIgnoreCase))
+            return new List<string> { "all" };
+
+        var ids = typed.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(i => i.ToUpperInvariant()).ToList();
+        if (ids.All(i => i.Length == 4 && i.All(Uri.IsHexDigit)))
+        {
+            var unknown = ids.Where(i => controllers.All(c => c.SystemId != i)).ToList();
+            if (unknown.Count == 0) return ids;
+            Console.WriteLine($"VEXTRACTOR_ID: no controller has the system id {string.Join(", ", unknown)}.");
+            return null;
+        }
+
+        var hits = controllers
+            .Where(c => c.Model.Contains(typed, StringComparison.OrdinalIgnoreCase)
+                        || c.Description.Contains(typed, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        // Several controller variants share one system id and are built together, so what has
+        // to be unambiguous is the id, not the row.
+        var systemIds = hits.Select(c => c.SystemId).Distinct().ToList();
+        if (systemIds.Count == 1) return systemIds;
+        if (hits.Count == 0)
+        {
+            Console.WriteLine($"VEXTRACTOR_ID: nothing matches '{typed}'.");
+            return null;
+        }
+        Console.WriteLine($"VEXTRACTOR_ID: '{typed}' matches {systemIds.Count} system ids; use one of them instead.");
+        SqliteExporter.PrintControllers(hits);
+        return null;
     }
 
     private static List<string>? AskController(List<SqliteExporter.ControllerInfo> controllers)

@@ -15,6 +15,8 @@ if (args[0] is "-h" or "--help" or "help")
     Console.WriteLine("VExtractor: builds the controller catalog for the OptoV integration.");
     Console.WriteLine();
     Console.WriteLine("Run it without arguments for a guided build that finds what it needs and asks the rest.");
+    Console.WriteLine("With VEXTRACTOR_ID set (a system id, several, 'all', or a name matching one id) it asks");
+    Console.WriteLine("nothing; VEXTRACTOR_LANG gives the languages, default de,en.");
     Console.WriteLine();
     Console.WriteLine("  VExtractor prepare <Setup.exe> <dir> [languages]   unpack definitions and texts");
     Console.WriteLine("  VExtractor devices [language]                    list controllers and system ids");
