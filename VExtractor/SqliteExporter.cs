@@ -618,6 +618,18 @@ public class SqliteExporter
                     PRIMARY KEY (device_id, code)
                 ) WITHOUT ROWID;
 
+                -- Fault codes of the burner automat (Feuerungsautomat), keyed by the automat's
+                -- chip code rather than by device: the boiler reads its automat's code from the
+                -- GFA_Kennung datapoint and looks the texts up under
+                -- viessmann.errorcode.fa.<CHIP>.<CODE>. Only written when an exported device has
+                -- that datapoint; additive, so the schema version stays.
+                CREATE TABLE fa_error_codes (
+                    chip TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    text_key TEXT NOT NULL,
+                    PRIMARY KEY (chip, code)
+                ) WITHOUT ROWID;
+
                 CREATE TABLE enums (
                     event_type_id INTEGER NOT NULL,
                     val_key INTEGER NOT NULL,
@@ -1156,6 +1168,38 @@ public class SqliteExporter
                 }
                 tx.Commit();
                 Console.WriteLine($"Exported {totalCodes} device-specific error codes (scanned culture '{scanCulture}').");
+
+                // Burner-automat fault codes, for the boilers that carry a GFA_Kennung datapoint
+                // (the automat's chip code) and the FehlerHisFA01..20 history records.
+                bool hasGfa;
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT EXISTS(SELECT 1 FROM device_datapoints dd JOIN datapoint_defs d ON d.id = dd.datapoint_id WHERE d.name LIKE '%GFA_Kennung')";
+                    hasGfa = Convert.ToInt64(cmd.ExecuteScalar()) == 1;
+                }
+                if (hasGfa)
+                {
+                    const string faPrefix = "viessmann.errorcode.fa.";
+                    using var faTx = connection.BeginTransaction();
+                    var faCodes = 0;
+                    foreach (var label in allLabels)
+                    {
+                        if (label == null || !label.StartsWith(faPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                        var parts = label.Substring(faPrefix.Length).Split('.');
+                        if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0) continue;
+                        referencedTextKeys.Add(label);
+                        using var cmd = connection.CreateCommand();
+                        cmd.Transaction = faTx;
+                        cmd.CommandText = "INSERT OR REPLACE INTO fa_error_codes (chip, code, text_key) VALUES (@chip, @c, @k)";
+                        cmd.Parameters.AddWithValue("@chip", parts[0].ToUpperInvariant());
+                        cmd.Parameters.AddWithValue("@c", parts[1].ToUpperInvariant());
+                        cmd.Parameters.AddWithValue("@k", label);
+                        cmd.ExecuteNonQuery();
+                        faCodes++;
+                    }
+                    faTx.Commit();
+                    Console.WriteLine($"Exported {faCodes} burner-automat error codes.");
+                }
             }
         }
 
