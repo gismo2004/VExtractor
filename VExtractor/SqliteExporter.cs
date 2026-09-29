@@ -649,6 +649,11 @@ public class SqliteExporter
                     PRIMARY KEY (event_type_id, group_id)
                 ) WITHOUT ROWID;
 
+                -- A rule is a tree of groups. A group holds when all (type 1) or any (type 2) of
+                -- its conditions and child groups hold; a root group carries the target it hides.
+                -- display_conditions keeps the target and type columns on the conditions of root
+                -- groups, so a reader that ignores the tree still reads the flat rows it always
+                -- did; conditions of child groups have no target of their own.
                 CREATE TABLE display_conditions (
                     id INTEGER NOT NULL,
                     device_id INTEGER NOT NULL REFERENCES devices(id),
@@ -657,9 +662,20 @@ public class SqliteExporter
                     condition_event_type_id INTEGER NOT NULL,
                     op TEXT NOT NULL,
                     compare_value INTEGER NOT NULL,
-                    rule_type INTEGER NOT NULL
+                    rule_type INTEGER NOT NULL,
+                    group_id INTEGER
                 );
                 CREATE INDEX idx_conditions_device ON display_conditions(device_id);
+
+                CREATE TABLE display_condition_groups (
+                    id INTEGER NOT NULL,
+                    device_id INTEGER NOT NULL REFERENCES devices(id),
+                    parent_id INTEGER,
+                    type INTEGER NOT NULL,
+                    target_event_type_id INTEGER,
+                    target_group_id INTEGER,
+                    PRIMARY KEY (device_id, id)
+                ) WITHOUT ROWID;
 
                 -- `translations` is created later by WriteTranslations() as a view over a
                 -- pivoted, value-interned store; see the comment there for the measurements.
@@ -732,6 +748,7 @@ public class SqliteExporter
             var groupLinksByGroup = allGroupLinks.Select((link, row) => (link, row))
                 .ToLookup(l => l.link.EventTypeGroupId);
             var conditionsByGroup = allDisplayConditions.ToLookup(c => c.ConditionGroupId);
+            var conditionGroupsByParent = allConditionGroups.ToLookup(g => g.ParentId);
 
             // An event type with its extension values and value types, or null when it has no
             // extension values (and therefore no address, and no place in the catalog).
@@ -796,8 +813,13 @@ public class SqliteExporter
             using var insertCondition = connection.CreateCommand();
             insertCondition.Transaction = tx;
             insertCondition.CommandText =
-                "INSERT INTO display_conditions (id, device_id, target_event_type_id, target_group_id, condition_event_type_id, op, compare_value, rule_type) "
-                + "VALUES (@id, @dev_id, @tet, @tg, @cet, @op, @cmp, @rt)";
+                "INSERT INTO display_conditions (id, device_id, target_event_type_id, target_group_id, condition_event_type_id, op, compare_value, rule_type, group_id) "
+                + "VALUES (@id, @dev_id, @tet, @tg, @cet, @op, @cmp, @rt, @gid)";
+            using var insertConditionGroup = connection.CreateCommand();
+            insertConditionGroup.Transaction = tx;
+            insertConditionGroup.CommandText =
+                "INSERT OR REPLACE INTO display_condition_groups (id, device_id, parent_id, type, target_event_type_id, target_group_id) "
+                + "VALUES (@id, @dev_id, @pid, @type, @tet, @tg)";
 
             // One definition row plus its enums. Called once per event type, from whichever
             // controller meets it first, and once more below for inputs that only rules name.
@@ -1021,28 +1043,50 @@ public class SqliteExporter
                              || (g.EventTypeGroupIdDest != -1 && familyGroupIds.Contains(g.EventTypeGroupIdDest)))
                     .ToList();
 
-                foreach (var group in conditionGroups)
+                // Each rule with the whole tree under it: child groups carry no target and are
+                // reached only through their parent.
+                foreach (var root in conditionGroups)
                 {
-                    var targetEtId = group.EventTypeIdDest == -1 ? (int?)null : group.EventTypeIdDest;
-                    var targetGId = group.EventTypeGroupIdDest == -1 ? (int?)null : group.EventTypeGroupIdDest;
-                    var ruleType = group.Type; // 1 = AND, 2 = OR
-
-                    foreach (var cond in conditionsByGroup[group.Id])
+                    var targetEtId = root.EventTypeIdDest == -1 ? (int?)null : root.EventTypeIdDest;
+                    var targetGId = root.EventTypeGroupIdDest == -1 ? (int?)null : root.EventTypeGroupIdDest;
+                    var pending = new Stack<(EcnDisplayConditionGroup Group, bool IsRoot)>();
+                    pending.Push((root, true));
+                    while (pending.Count > 0)
                     {
-                        var op = cond.Condition switch { 0 => "eq", 1 => "ne", 2 => "gt", 4 => "lt", _ => "eq" };
-                        var compareValue = valueTypesById.TryGetValue(cond.EventTypeValueCondition, out var valType)
-                            ? GetEnumKeyValuePair(valType.EnumReplaceValue ?? string.Empty).Key
-                            : (int)(cond.ConditionValue ?? 0);
+                        var (group, isRoot) = pending.Pop();
+                        Bind(insertConditionGroup, "@id", group.Id);
+                        Bind(insertConditionGroup, "@dev_id", deviceId);
+                        Bind(insertConditionGroup, "@pid", isRoot ? (int?)null : group.ParentId);
+                        Bind(insertConditionGroup, "@type", group.Type); // 1 = all, 2 = any
+                        Bind(insertConditionGroup, "@tet", isRoot ? targetEtId : null);
+                        Bind(insertConditionGroup, "@tg", isRoot ? targetGId : null);
+                        insertConditionGroup.ExecuteNonQuery();
 
-                        Bind(insertCondition, "@id", cond.Id);
-                        Bind(insertCondition, "@dev_id", deviceId);
-                        Bind(insertCondition, "@tet", targetEtId);
-                        Bind(insertCondition, "@tg", targetGId);
-                        Bind(insertCondition, "@cet", cond.EventTypeIdCondition);
-                        Bind(insertCondition, "@op", op);
-                        Bind(insertCondition, "@cmp", compareValue);
-                        Bind(insertCondition, "@rt", ruleType);
-                        insertCondition.ExecuteNonQuery();
+                        foreach (var cond in conditionsByGroup[group.Id])
+                        {
+                            var op = cond.Condition switch
+                            {
+                                0 => "eq", 1 => "ne", 2 => "gt", 3 => "ge", 4 => "lt", 5 => "le",
+                                _ => throw new InvalidOperationException(
+                                    $"display condition {cond.Id}: unknown operator {cond.Condition}"),
+                            };
+                            var compareValue = valueTypesById.TryGetValue(cond.EventTypeValueCondition, out var valType)
+                                ? GetEnumKeyValuePair(valType.EnumReplaceValue ?? string.Empty).Key
+                                : (int)(cond.ConditionValue ?? 0);
+
+                            Bind(insertCondition, "@id", cond.Id);
+                            Bind(insertCondition, "@dev_id", deviceId);
+                            Bind(insertCondition, "@tet", isRoot ? targetEtId : null);
+                            Bind(insertCondition, "@tg", isRoot ? targetGId : null);
+                            Bind(insertCondition, "@cet", cond.EventTypeIdCondition);
+                            Bind(insertCondition, "@op", op);
+                            Bind(insertCondition, "@cmp", compareValue);
+                            Bind(insertCondition, "@rt", group.Type);
+                            Bind(insertCondition, "@gid", group.Id);
+                            insertCondition.ExecuteNonQuery();
+                        }
+                        foreach (var child in conditionGroupsByParent[group.Id])
+                            pending.Push((child, false));
                     }
                 }
 
@@ -1372,8 +1416,10 @@ public class SqliteExporter
     ///
     ///   1  first versioned catalog: level-name key stems on datapoint_defs, catalog_meta
     ///   2  fa_error_codes, the fault texts of the burner automats
+    ///   3  display_condition_groups and display_conditions.group_id: rules as the trees of
+    ///      all/any groups they are, and every comparison operator
     /// </summary>
-    public const int CatalogSchemaVersion = 2;
+    public const int CatalogSchemaVersion = 3;
 
     /// <summary>
     /// The MappingType values that mark a weekly programme, and the name the source files its
